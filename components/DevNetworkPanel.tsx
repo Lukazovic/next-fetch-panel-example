@@ -124,60 +124,87 @@ function Panel() {
             </button>
           </div>
           <div style={{ overflowY: "auto", flex: 1 }}>
-            {entries.length === 0 ? (
-              <div
-                style={{ padding: "24px", textAlign: "center", color: "#475569" }}
-              >
-                No requests yet
-              </div>
-            ) : (
-              entries.map((entry) => (
-                <div
-                  key={entry.id}
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr
                   style={{
-                    padding: "6px 12px",
-                    borderBottom: "1px solid #0f172a",
-                    display: "grid",
-                    gridTemplateColumns: "48px 40px 1fr 56px",
-                    gap: "8px",
-                    alignItems: "center",
-                    background: entry.error ? "rgba(239,68,68,0.05)" : "transparent",
+                    position: "sticky",
+                    top: 0,
+                    background: "#0f172a",
+                    borderBottom: "1px solid #334155",
+                    zIndex: 1,
                   }}
-                  title={entry.error}
                 >
-                  <span
-                    style={{
-                      color: methodColor(entry.method),
-                      fontWeight: 600,
-                      fontSize: "11px",
-                    }}
-                  >
-                    {entry.method}
-                  </span>
-                  <span
-                    style={{
-                      color: statusColor(entry.status, entry.error),
-                      fontWeight: 600,
-                    }}
-                  >
-                    {entry.status ?? "ERR"}
-                  </span>
-                  <span
-                    style={{
-                      color: "#cbd5e1",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {entry.url}
-                  </span>
-                  <span style={{ color: "#64748b", textAlign: "right" }}>
-                    {entry.duration}ms
-                  </span>
-                </div>
-              ))
-            )}
+                  {(["Method", "Status", "URL", "Duration"] as const).map((col) => (
+                    <th
+                      key={col}
+                      style={{
+                        padding: "6px 12px",
+                        textAlign: col === "Duration" ? "right" : "left",
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        color: "#475569",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        whiteSpace: "nowrap",
+                        width: col === "Method" ? "60px" : col === "Status" ? "52px" : col === "Duration" ? "72px" : undefined,
+                      }}
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      style={{ padding: "24px", textAlign: "center", color: "#475569" }}
+                    >
+                      No requests yet
+                    </td>
+                  </tr>
+                ) : (
+                  entries.map((entry) => (
+                    <tr
+                      key={entry.id}
+                      title={entry.error}
+                      style={{
+                        borderBottom: "1px solid #1e293b",
+                        background: entry.error ? "rgba(239,68,68,0.05)" : "transparent",
+                      }}
+                    >
+                      <td style={{ padding: "5px 12px", whiteSpace: "nowrap" }}>
+                        <span style={{ color: methodColor(entry.method), fontWeight: 600, fontSize: "11px" }}>
+                          {entry.method}
+                        </span>
+                      </td>
+                      <td style={{ padding: "5px 12px", whiteSpace: "nowrap" }}>
+                        <span style={{ color: statusColor(entry.status, entry.error), fontWeight: 600 }}>
+                          {entry.status ?? "ERR"}
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          padding: "5px 12px",
+                          color: "#cbd5e1",
+                          maxWidth: "260px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.url}
+                      </td>
+                      <td style={{ padding: "5px 12px", color: "#64748b", textAlign: "right", whiteSpace: "nowrap" }}>
+                        {entry.duration}ms
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
             <div ref={bottomRef} />
           </div>
         </div>
