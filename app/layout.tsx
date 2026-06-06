@@ -30,7 +30,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         {children}
-        {process.env.NODE_ENV === "development" && <DevNetworkPanel />}
+        <DevNetworkPanel />
       </body>
     </html>
   );

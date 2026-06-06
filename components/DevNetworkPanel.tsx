@@ -44,7 +44,6 @@ function formatTs(ts: number) {
 }
 
 export default function DevNetworkPanel() {
-  if (process.env.NODE_ENV !== "development") return null;
   return <Panel />;
 }
 

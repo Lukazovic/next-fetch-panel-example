@@ -3,10 +3,6 @@ import { devLogStore } from "@/lib/dev-log-store";
 export const dynamic = "force-dynamic";
 
 export function GET() {
-  if (process.env.NODE_ENV !== "development") {
-    return new Response(null, { status: 404 });
-  }
-
   let unsubscribe: (() => void) | undefined;
 
   const stream = new ReadableStream({

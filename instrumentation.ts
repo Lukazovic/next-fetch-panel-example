@@ -20,10 +20,7 @@ function extractRequestBody(init?: RequestInit): string | null {
 }
 
 export async function register() {
-  if (
-    process.env.NODE_ENV !== "development" ||
-    process.env.NEXT_RUNTIME !== "nodejs"
-  ) {
+  if (process.env.NEXT_RUNTIME !== "nodejs") {
     return;
   }
 
