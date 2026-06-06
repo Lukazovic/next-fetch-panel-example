@@ -1,3 +1,24 @@
+const BODY_LIMIT = 50_000;
+
+function headersToObject(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) return {};
+  if (headers instanceof Headers) {
+    const obj: Record<string, string> = {};
+    headers.forEach((v, k) => { obj[k] = v; });
+    return obj;
+  }
+  if (Array.isArray(headers)) return Object.fromEntries(headers);
+  return headers as Record<string, string>;
+}
+
+function extractRequestBody(init?: RequestInit): string | null {
+  const body = init?.body;
+  if (body == null) return null;
+  if (typeof body === "string") return body.slice(0, BODY_LIMIT);
+  if (body instanceof URLSearchParams) return body.toString().slice(0, BODY_LIMIT);
+  return "[binary]";
+}
+
 export async function register() {
   if (
     process.env.NODE_ENV !== "development" ||
@@ -23,21 +44,44 @@ export async function register() {
         : input.url;
     const ts = Date.now();
     const id = `${ts}-${Math.random().toString(36).slice(2, 8)}`;
-
-    let status: number | null = null;
-    let error: string | undefined;
+    const requestHeaders = headersToObject(init?.headers);
+    const requestBody = extractRequestBody(init);
     const start = performance.now();
 
     try {
       const response = await originalFetch(input, init);
-      status = response.status;
+      const duration = Math.round(performance.now() - start);
+
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((v, k) => { responseHeaders[k] = v; });
+
+      // clone to read body without consuming the original stream
+      response.clone().text().then(
+        (text) => devLogStore.push({
+          id, url, method, ts, duration, error: undefined,
+          status: response.status, statusText: response.statusText,
+          requestHeaders, responseHeaders,
+          requestBody, responseBody: text.slice(0, BODY_LIMIT),
+        }),
+        () => devLogStore.push({
+          id, url, method, ts, duration, error: undefined,
+          status: response.status, statusText: response.statusText,
+          requestHeaders, responseHeaders,
+          requestBody, responseBody: null,
+        }),
+      );
+
       return response;
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      throw err;
-    } finally {
       const duration = Math.round(performance.now() - start);
-      devLogStore.push({ id, url, method, status, duration, ts, error });
+      const error = err instanceof Error ? err.message : String(err);
+      devLogStore.push({
+        id, url, method, ts, duration, error,
+        status: null, statusText: null,
+        requestHeaders, responseHeaders: {},
+        requestBody, responseBody: null,
+      });
+      throw err;
     }
   };
 }

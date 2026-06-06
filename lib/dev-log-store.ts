@@ -3,9 +3,14 @@ export type LogEntry = {
   url: string;
   method: string;
   status: number | null;
+  statusText: string | null;
   duration: number;
   ts: number;
   error?: string;
+  requestHeaders: Record<string, string>;
+  responseHeaders: Record<string, string>;
+  requestBody: string | null;
+  responseBody: string | null;
 };
 
 const BUFFER_SIZE = 100;
