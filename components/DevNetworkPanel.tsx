@@ -511,7 +511,7 @@ function Panel() {
   const isHorizontal = config.sheetSide === "bottom" || config.sheetSide === "top";
   const sheetSize = isHorizontal
     ? { height: config.height }
-    : { width: config.width };
+    : { width: config.width, maxWidth: config.width };
 
   return (
     <>
