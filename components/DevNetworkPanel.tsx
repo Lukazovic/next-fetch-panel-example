@@ -54,30 +54,24 @@ function HeaderTable({ headers }: { headers: Record<string, string> | undefined 
   if (entries.length === 0)
     return <p style={{ color: "#475569", fontSize: "11px", padding: "4px 0" }}>No headers</p>;
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-      <tbody>
-        {entries.map(([k, v]) => (
-          <tr key={k} style={{ borderBottom: "1px solid #1e293b" }}>
-            <td
-              style={{
-                padding: "4px 8px 4px 0",
-                color: "#94a3b8",
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-                verticalAlign: "top",
-                width: "40%",
-                wordBreak: "break-all",
-              }}
-            >
-              {k}
-            </td>
-            <td style={{ padding: "4px 0", color: "#cbd5e1", wordBreak: "break-all" }}>
-              {v}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {entries.map(([k, v]) => (
+        <div
+          key={k}
+          style={{
+            padding: "6px 0",
+            borderBottom: "1px solid #1e293b",
+          }}
+        >
+          <div style={{ color: "#64748b", fontSize: "10px", fontWeight: 600, marginBottom: "2px", textTransform: "lowercase", letterSpacing: "0.02em" }}>
+            {k}
+          </div>
+          <div style={{ color: "#e2e8f0", wordBreak: "break-all", lineHeight: 1.5 }}>
+            {v}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
