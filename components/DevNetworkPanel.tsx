@@ -34,6 +34,7 @@ type LogEntry = {
 
 type PanelMode = "sheet" | "fixed";
 type SheetSide = "bottom" | "right" | "left" | "top";
+type ColorScheme = "system" | "light" | "dark";
 
 type PanelConfig = {
   mode: PanelMode;
@@ -41,6 +42,7 @@ type PanelConfig = {
   sheetModal: boolean;
   width: number;
   height: number;
+  colorScheme: ColorScheme;
 };
 
 const DEFAULT_CONFIG: PanelConfig = {
@@ -49,6 +51,7 @@ const DEFAULT_CONFIG: PanelConfig = {
   sheetModal: false,
   width: 820,
   height: 420,
+  colorScheme: "system",
 };
 
 const STORAGE_KEY = "ssr-panel-config";
@@ -74,6 +77,27 @@ function usePanelConfig() {
   }, []);
 
   return { config, update };
+}
+
+// ─── Theme hook ───────────────────────────────────────────────────────────────
+
+function useEffectiveTheme(colorScheme: ColorScheme): "light" | "dark" {
+  const [systemDark, setSystemDark] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+      : false
+  );
+
+  useEffect(() => {
+    if (colorScheme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [colorScheme]);
+
+  if (colorScheme !== "system") return colorScheme;
+  return systemDark ? "dark" : "light";
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -159,19 +183,24 @@ function NumInput({
 // ─── Settings dialog ─────────────────────────────────────────────────────────
 
 function SettingsDialog({
-  config, update, open, onOpenChange,
+  config, update, open, onOpenChange, theme,
 }: {
   config: PanelConfig;
   update: (p: Partial<PanelConfig>) => void;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  theme: "light" | "dark";
 }) {
+  const isDark = theme === "dark";
   const isHorizontal = config.sheetSide === "bottom" || config.sheetSide === "top";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="dark bg-zinc-950 text-zinc-100 border-zinc-800 ring-zinc-800 sm:max-w-lg gap-0 p-0 overflow-hidden"
+        className={cn(
+          isDark && "dark",
+          "bg-background text-foreground border-border sm:max-w-lg gap-0 p-0 overflow-hidden",
+        )}
         showCloseButton={false}
       >
         <DialogHeader className="px-5 pt-5 pb-4 border-b border-border">
@@ -183,6 +212,20 @@ function SettingsDialog({
 
         <ScrollArea className="max-h-[60vh]">
           <div className="flex flex-col gap-5 px-5 py-4 text-xs">
+
+            {/* Color scheme */}
+            <div className="flex flex-col gap-2">
+              <p className="font-medium text-foreground">Color scheme</p>
+              <div className="flex gap-2">
+                {(["system", "light", "dark"] as ColorScheme[]).map((s) => (
+                  <OptionButton key={s} active={config.colorScheme === s} onClick={() => update({ colorScheme: s })}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </OptionButton>
+                ))}
+              </div>
+            </div>
+
+            <Separator className="bg-border" />
 
             {/* Display mode */}
             <div className="flex flex-col gap-2">
@@ -415,7 +458,7 @@ function PanelInner({
         <ScrollArea className="flex-1 min-w-0">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="sticky top-0 z-10 bg-zinc-950 border-b border-border">
+              <tr className="sticky top-0 z-10 bg-background border-b border-border">
                 {[
                   { label: "Method",   cls: "w-[58px] text-left"  },
                   { label: "Status",   cls: "w-[52px] text-left"  },
@@ -482,6 +525,8 @@ function Panel() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { config, update } = usePanelConfig();
+  const theme = useEffectiveTheme(config.colorScheme);
+  const isDark = theme === "dark";
 
   useEffect(() => {
     const es = new EventSource("/api/dev-network");
@@ -516,9 +561,11 @@ function Panel() {
   return (
     <>
       {/* Settings dialog */}
-      <div className="dark">
-        <SettingsDialog config={config} update={update} open={settingsOpen} onOpenChange={setSettingsOpen} />
-      </div>
+      <SettingsDialog
+        config={config} update={update}
+        open={settingsOpen} onOpenChange={setSettingsOpen}
+        theme={theme}
+      />
 
       {/* Panel — sheet mode */}
       {config.mode === "sheet" && (
@@ -531,7 +578,7 @@ function Panel() {
             side={config.sheetSide}
             showCloseButton={false}
             showOverlay={config.sheetModal}
-            className="dark font-mono text-xs gap-0 p-0 border-zinc-800 bg-zinc-950 text-zinc-100"
+            className={cn(isDark && "dark", "bg-background text-foreground border-border font-mono text-xs gap-0 p-0")}
             style={sheetSize}
           >
             <SheetTitle className="sr-only">SSR Network Panel</SheetTitle>
@@ -543,9 +590,9 @@ function Panel() {
 
       {/* Panel — fixed modal mode */}
       {config.mode === "fixed" && open && (
-        <div className="dark text-foreground">
+        <div className={cn(isDark && "dark")}>
           <div
-            className="fixed bottom-14 right-4 z-9998 flex flex-col rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-100 font-mono text-xs shadow-2xl"
+            className="fixed bottom-14 right-4 z-9998 flex flex-col rounded-lg border border-border bg-background text-foreground font-mono text-xs shadow-2xl"
             style={{ width: config.width, height: config.height }}
           >
             <PanelInner {...innerProps} />
@@ -555,20 +602,20 @@ function Panel() {
 
       {/* Toggle button — hidden while panel is open */}
       {!open && (
-      <div className="dark text-foreground">
-        <Button
-          variant="outline"
-          size="sm"
-          className="fixed bottom-4 right-4 z-9999 font-mono gap-1.5"
-          onClick={() => setOpen(true)}
-        >
-          <span className={entries.length > 0 ? "text-green-500" : "text-muted-foreground"}>●</span>
-          SSR Network
-          {entries.length > 0 && (
-            <Badge variant="secondary" className="ml-0.5 tabular-nums">{entries.length}</Badge>
-          )}
-        </Button>
-      </div>
+        <div className={cn(isDark && "dark")}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="fixed bottom-4 right-4 z-9999 font-mono gap-1.5"
+            onClick={() => setOpen(true)}
+          >
+            <span className={entries.length > 0 ? "text-green-500" : "text-muted-foreground"}>●</span>
+            SSR Network
+            {entries.length > 0 && (
+              <Badge variant="secondary" className="ml-0.5 tabular-nums">{entries.length}</Badge>
+            )}
+          </Button>
+        </div>
       )}
     </>
   );
