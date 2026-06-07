@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 type LogEntry = {
   id: string;
@@ -17,70 +22,67 @@ type LogEntry = {
   responseBody: string | null;
 };
 
-type DetailTab = "general" | "headers" | "payload" | "response";
-
 const MAX_ENTRIES = 100;
 
-function statusColor(status: number | null, error?: string) {
-  if (error || status === null) return "#ef4444";
-  if (status < 300) return "#22c55e";
-  if (status < 400) return "#f59e0b";
-  return "#ef4444";
+const METHOD_COLORS: Record<string, string> = {
+  GET: "text-blue-400",
+  POST: "text-violet-400",
+  PUT: "text-orange-400",
+  PATCH: "text-orange-400",
+  DELETE: "text-red-400",
+};
+
+function methodClass(method: string) {
+  return METHOD_COLORS[method] ?? "text-slate-400";
 }
 
-function methodColor(method: string) {
-  switch (method) {
-    case "GET":    return "#60a5fa";
-    case "POST":   return "#a78bfa";
-    case "PUT":
-    case "PATCH":  return "#fb923c";
-    case "DELETE": return "#f87171";
-    default:       return "#94a3b8";
-  }
+function statusClass(status: number | null, error?: string) {
+  if (error || status === null) return "text-red-400";
+  if (status < 300) return "text-green-400";
+  if (status < 400) return "text-amber-400";
+  return "text-red-400";
+}
+
+function durationBarColor(ms: number) {
+  if (ms < 200) return "bg-green-500";
+  if (ms < 1000) return "bg-amber-500";
+  return "bg-red-500";
 }
 
 function formatTs(ts: number) {
-  return new Date(ts).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 });
+  return new Date(ts).toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+  });
 }
 
-export default function DevNetworkPanel() {
-  return <Panel />;
-}
-
-// ─── Detail panel ───────────────────────────────────────────────────────────
-
-function HeaderTable({ headers }: { headers: Record<string, string> | undefined | null }) {
-  const entries = Object.entries(headers ?? {});
-  if (entries.length === 0)
-    return <p style={{ color: "#475569", fontSize: "11px", padding: "4px 0" }}>No headers</p>;
-  return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
-      {entries.map(([k, v]) => (
-        <div
-          key={k}
-          style={{
-            padding: "6px 0",
-            borderBottom: "1px solid #1e293b",
-          }}
-        >
-          <div style={{ color: "#64748b", fontSize: "10px", fontWeight: 600, marginBottom: "2px", textTransform: "lowercase", letterSpacing: "0.02em" }}>
-            {k}
-          </div>
-          <div style={{ color: "#e2e8f0", wordBreak: "break-all", lineHeight: 1.5 }}>
-            {v}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function tryPrettyJson(text: string): string {
+function tryPrettyJson(text: string) {
   try {
     return JSON.stringify(JSON.parse(text), null, 2);
   } catch {
     return text;
   }
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function HeaderList({ headers }: { headers: Record<string, string> | undefined | null }) {
+  const entries = Object.entries(headers ?? {});
+  if (entries.length === 0)
+    return <p className="text-muted-foreground text-[11px]">No headers</p>;
+  return (
+    <div className="flex flex-col divide-y divide-border">
+      {entries.map(([k, v]) => (
+        <div key={k} className="py-1.5">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">{k}</p>
+          <p className="text-[11px] text-foreground break-all leading-relaxed">{v}</p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function BodyViewer({
@@ -92,189 +94,130 @@ function BodyViewer({
   contentType: string | null;
   emptyLabel: string;
 }) {
-  if (!body) {
-    return <p style={{ color: "#475569", fontSize: "11px", padding: "4px 0" }}>{emptyLabel}</p>;
-  }
-
-  const isJson = contentType?.includes("json") || (body.trimStart().startsWith("{") || body.trimStart().startsWith("["));
-  const displayed = isJson ? tryPrettyJson(body) : body;
-
+  if (!body)
+    return <p className="text-muted-foreground text-[11px]">{emptyLabel}</p>;
+  const isJson =
+    contentType?.includes("json") ||
+    body.trimStart().startsWith("{") ||
+    body.trimStart().startsWith("[");
   return (
-    <pre
-      style={{
-        margin: 0,
-        padding: 0,
-        color: "#cbd5e1",
-        fontSize: "11px",
-        whiteSpace: "pre-wrap",
-        wordBreak: "break-all",
-        lineHeight: 1.6,
-        maxHeight: "300px",
-        overflowY: "auto",
-      }}
-    >
-      {displayed}
+    <pre className="text-[11px] text-foreground whitespace-pre-wrap break-all leading-relaxed">
+      {isJson ? tryPrettyJson(body) : body}
     </pre>
   );
 }
 
 function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void }) {
-  const [tab, setTab] = useState<DetailTab>("general");
-
-  const tabs: { id: DetailTab; label: string }[] = [
-    { id: "general",  label: "General"  },
-    { id: "headers",  label: "Headers"  },
-    { id: "payload",  label: "Payload"  },
-    { id: "response", label: "Response" },
-  ];
+  let pathname = entry.url;
+  try { pathname = new URL(entry.url).pathname; } catch { /* keep full url */ }
 
   return (
-    <div
-      style={{
-        width: "300px",
-        flexShrink: 0,
-        borderLeft: "1px solid #1e293b",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
-    >
-      {/* detail header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "6px 10px",
-          borderBottom: "1px solid #1e293b",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            color: "#e2e8f0",
-            fontSize: "11px",
-            fontWeight: 600,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-          title={entry.url}
-        >
-          {new URL(entry.url).pathname}
+    <div className="w-75 shrink-0 border-l border-border flex flex-col overflow-hidden">
+      {/* header */}
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-2.5 py-1.5 gap-2">
+        <span className="truncate text-[11px] font-semibold text-foreground" title={entry.url}>
+          {pathname}
         </span>
-        <button
-          onClick={onClose}
-          style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "14px", lineHeight: 1, padding: "0 0 0 8px", flexShrink: 0 }}
-        >
+        <Button variant="ghost" size="icon-xs" className="shrink-0 text-muted-foreground" onClick={onClose}>
           ✕
-        </button>
+        </Button>
       </div>
 
       {/* tabs */}
-      <div style={{ display: "flex", borderBottom: "1px solid #1e293b", flexShrink: 0, overflowX: "auto", scrollbarWidth: "none" }}>
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              background: "none",
-              border: "none",
-              borderBottom: tab === t.id ? "2px solid #3b82f6" : "2px solid transparent",
-              color: tab === t.id ? "#e2e8f0" : "#64748b",
-              cursor: "pointer",
-              fontSize: "11px",
-              padding: "6px 10px",
-              fontFamily: "monospace",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs defaultValue="general" className="flex flex-col flex-1 overflow-hidden gap-0">
+        <TabsList
+          variant="line"
+          className="shrink-0 w-full justify-start rounded-none border-b border-border bg-transparent h-auto px-1 overflow-x-auto scrollbar-none"
+        >
+          {(["general", "headers", "payload", "response"] as const).map((v) => (
+            <TabsTrigger key={v} value={v} className="text-[11px] capitalize px-2.5 py-1.5">
+              {v}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {/* tab content */}
-      <div style={{ overflowY: "auto", flex: 1, padding: "10px 12px", fontSize: "11px", fontFamily: "monospace" }}>
-        {tab === "payload" && (
-          <BodyViewer
-            body={entry.requestBody}
-            contentType={entry.requestHeaders?.["content-type"] ?? null}
-            emptyLabel="No request body"
-          />
-        )}
-
-        {tab === "response" && (
-          <BodyViewer
-            body={entry.responseBody}
-            contentType={entry.responseHeaders?.["content-type"] ?? null}
-            emptyLabel="No response body"
-          />
-        )}
-
-        {tab === "general" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {[
-              ["Request URL",    entry.url],
-              ["Request Method", entry.method],
-              ["Status Code",    entry.status != null ? `${entry.status}${entry.statusText ? " " + entry.statusText : ""}` : "—"],
-              ["Started at",     formatTs(entry.ts)],
-              ["Duration",       `${entry.duration}ms`],
-              ...(entry.error ? [["Error", entry.error]] : []),
-            ].map(([label, value]) => (
-              <div key={label}>
-                <div style={{ color: "#475569", marginBottom: "2px" }}>{label}</div>
-                <div
-                  style={{
-                    color: label === "Status Code"
-                      ? statusColor(entry.status, entry.error)
-                      : label === "Error" ? "#ef4444" : "#cbd5e1",
-                    wordBreak: "break-all",
-                  }}
-                >
-                  {value}
+        <div className="flex-1 overflow-hidden min-h-0">
+          <TabsContent value="general" className="h-full m-0">
+            <ScrollArea className="h-full">
+              <div className="flex flex-col gap-3 p-3 text-[11px]">
+                {[
+                  ["Request URL",   entry.url],
+                  ["Request Method", entry.method],
+                  ["Status Code",   entry.status != null ? `${entry.status}${entry.statusText ? " " + entry.statusText : ""}` : "—"],
+                  ["Started at",    formatTs(entry.ts)],
+                  ["Duration",      `${entry.duration}ms`],
+                  ...(entry.error ? [["Error", entry.error]] : []),
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <p className="text-muted-foreground mb-0.5">{label}</p>
+                    <p className={cn(
+                      "break-all leading-relaxed",
+                      label === "Status Code" ? statusClass(entry.status, entry.error) :
+                      label === "Error"       ? "text-red-400" : "text-foreground"
+                    )}>
+                      {value}
+                    </p>
+                  </div>
+                ))}
+                <div>
+                  <p className="text-muted-foreground mb-1.5">Duration bar</p>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full", durationBarColor(entry.duration))}
+                      style={{ width: `${Math.min((entry.duration / 2000) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/50 mt-1">scale: 0–2000ms</p>
                 </div>
               </div>
-            ))}
-            <div style={{ marginTop: "4px" }}>
-              <div style={{ color: "#475569", marginBottom: "6px" }}>Duration bar</div>
-              <div style={{ height: "6px", background: "#1e293b", borderRadius: "3px", overflow: "hidden" }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${Math.min((entry.duration / 2000) * 100, 100)}%`,
-                    background: entry.duration < 200 ? "#22c55e" : entry.duration < 1000 ? "#f59e0b" : "#ef4444",
-                    borderRadius: "3px",
-                  }}
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="headers" className="h-full m-0">
+            <ScrollArea className="h-full">
+              <div className="flex flex-col gap-4 p-3">
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Response Headers</p>
+                  <HeaderList headers={entry.responseHeaders} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Request Headers</p>
+                  <HeaderList headers={entry.requestHeaders} />
+                </div>
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="payload" className="h-full m-0">
+            <ScrollArea className="h-full">
+              <div className="p-3">
+                <BodyViewer
+                  body={entry.requestBody}
+                  contentType={entry.requestHeaders?.["content-type"] ?? null}
+                  emptyLabel="No request body"
                 />
               </div>
-              <p style={{ color: "#334155", fontSize: "10px", marginTop: "4px" }}>scale: 0–2000ms</p>
-            </div>
-          </div>
-        )}
+            </ScrollArea>
+          </TabsContent>
 
-        {tab === "headers" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <div>
-              <p style={{ color: "#475569", fontWeight: 600, marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: "10px" }}>
-                Response Headers
-              </p>
-              <HeaderTable headers={entry.responseHeaders} />
-            </div>
-            <div>
-              <p style={{ color: "#475569", fontWeight: 600, marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: "10px" }}>
-                Request Headers
-              </p>
-              <HeaderTable headers={entry.requestHeaders} />
-            </div>
-          </div>
-        )}
-
-      </div>
+          <TabsContent value="response" className="h-full m-0">
+            <ScrollArea className="h-full">
+              <div className="p-3">
+                <BodyViewer
+                  body={entry.responseBody}
+                  contentType={entry.responseHeaders?.["content-type"] ?? null}
+                  emptyLabel="No response body"
+                />
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        </div>
+      </Tabs>
     </div>
   );
 }
 
-// ─── Main panel ─────────────────────────────────────────────────────────────
+// ─── Main Panel ───────────────────────────────────────────────────────────────
 
 function Panel() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -289,7 +232,7 @@ function Panel() {
         const entry: LogEntry = JSON.parse(event.data);
         setEntries((prev) => {
           const next = [...prev, entry];
-          return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next;
+          return next.length > MAX_ENTRIES ? next.slice(-MAX_ENTRIES) : next;
         });
       } catch { /* ignore */ }
     };
@@ -302,84 +245,47 @@ function Panel() {
     }
   }, [entries, open, selected]);
 
-  const panelWidth = selected ? 820 : 540;
-
   return (
-    <>
+    <div className="dark text-foreground">
       {open && (
         <div
-          style={{
-            position: "fixed",
-            bottom: "52px",
-            right: "16px",
-            width: `${panelWidth}px`,
-            height: "420px",
-            background: "#0f172a",
-            border: "1px solid #1e293b",
-            borderRadius: "8px",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
-            display: "flex",
-            flexDirection: "column",
-            zIndex: 9998,
-            fontFamily: "monospace",
-            fontSize: "12px",
-            transition: "width 0.15s ease",
-          }}
+          className="fixed bottom-14 right-4 z-9998 flex flex-col rounded-lg border border-border bg-card font-mono text-xs shadow-2xl transition-[width] duration-150"
+          style={{ width: selected ? 820 : 540, height: 420 }}
         >
           {/* toolbar */}
-          <div
-            style={{
-              padding: "6px 12px",
-              borderBottom: "1px solid #1e293b",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexShrink: 0,
-            }}
-          >
-            <span style={{ fontWeight: 600, color: "#e2e8f0", fontSize: "12px" }}>
-              SSR Network
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5">
+            <span className="font-semibold text-foreground">
+              Server Network
               {entries.length > 0 && (
-                <span style={{ color: "#475569", fontWeight: 400, marginLeft: "6px" }}>
+                <span className="ml-1.5 font-normal text-muted-foreground">
                   {entries.length} requests
                 </span>
               )}
             </span>
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
               onClick={() => { setEntries([]); setSelected(null); }}
-              style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "11px", padding: "2px 6px" }}
             >
-              clear
-            </button>
+              Clear
+            </Button>
           </div>
 
           {/* body */}
-          <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          <div className="flex flex-1 overflow-hidden">
             {/* table */}
-            <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <ScrollArea className="flex-1 min-w-0">
+              <table className="w-full border-collapse">
                 <thead>
-                  <tr style={{ position: "sticky", top: 0, background: "#0f172a", borderBottom: "1px solid #334155", zIndex: 1 }}>
+                  <tr className="sticky top-0 z-10 bg-card border-b border-border">
                     {[
-                      { label: "Method",   width: "58px",  align: "left"  },
-                      { label: "Status",   width: "50px",  align: "left"  },
-                      { label: "URL",      width: undefined, align: "left" },
-                      { label: "Duration", width: "68px",  align: "right" },
-                    ].map(({ label, width, align }) => (
-                      <th
-                        key={label}
-                        style={{
-                          padding: "5px 10px",
-                          textAlign: align as "left" | "right",
-                          fontSize: "10px",
-                          fontWeight: 600,
-                          color: "#475569",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.06em",
-                          whiteSpace: "nowrap",
-                          width,
-                        }}
-                      >
+                      { label: "Method",   cls: "w-[58px] text-left"  },
+                      { label: "Status",   cls: "w-[52px] text-left"  },
+                      { label: "URL",      cls: "text-left"           },
+                      { label: "Duration", cls: "w-[68px] text-right" },
+                    ].map(({ label, cls }) => (
+                      <th key={label} className={cn("px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap", cls)}>
                         {label}
                       </th>
                     ))}
@@ -388,7 +294,7 @@ function Panel() {
                 <tbody>
                   {entries.length === 0 ? (
                     <tr>
-                      <td colSpan={4} style={{ padding: "24px", textAlign: "center", color: "#475569" }}>
+                      <td colSpan={4} className="py-6 text-center text-muted-foreground">
                         No requests yet
                       </td>
                     </tr>
@@ -398,39 +304,31 @@ function Panel() {
                       return (
                         <tr
                           key={entry.id}
-                          onClick={() => setSelected(isSelected ? null : entry)}
                           title={entry.error}
-                          style={{
-                            borderBottom: "1px solid #1e293b",
-                            background: isSelected
-                              ? "#1e3a5f"
+                          onClick={() => setSelected(isSelected ? null : entry)}
+                          className={cn(
+                            "cursor-pointer border-b border-border transition-colors",
+                            isSelected
+                              ? "bg-primary/15"
                               : entry.error
-                              ? "rgba(239,68,68,0.05)"
-                              : "transparent",
-                            cursor: "pointer",
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background = "#1e293b";
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background =
-                              entry.error ? "rgba(239,68,68,0.05)" : "transparent";
-                          }}
+                              ? "bg-destructive/5 hover:bg-destructive/10"
+                              : "hover:bg-muted/40"
+                          )}
                         >
-                          <td style={{ padding: "5px 10px", whiteSpace: "nowrap" }}>
-                            <span style={{ color: methodColor(entry.method), fontWeight: 600, fontSize: "11px" }}>
+                          <td className="px-2.5 py-1.25 whitespace-nowrap">
+                            <span className={cn("font-semibold text-[11px]", methodClass(entry.method))}>
                               {entry.method}
                             </span>
                           </td>
-                          <td style={{ padding: "5px 10px", whiteSpace: "nowrap" }}>
-                            <span style={{ color: statusColor(entry.status, entry.error), fontWeight: 600 }}>
+                          <td className="px-2.5 py-1.25 whitespace-nowrap">
+                            <span className={cn("font-semibold", statusClass(entry.status, entry.error))}>
                               {entry.status ?? "ERR"}
                             </span>
                           </td>
-                          <td style={{ padding: "5px 10px", color: "#cbd5e1", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <td className="px-2.5 py-1.25 max-w-50 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/80">
                             {entry.url}
                           </td>
-                          <td style={{ padding: "5px 10px", color: "#64748b", textAlign: "right", whiteSpace: "nowrap" }}>
+                          <td className="px-2.5 py-1.25 text-right whitespace-nowrap text-muted-foreground">
                             {entry.duration}ms
                           </td>
                         </tr>
@@ -440,7 +338,7 @@ function Panel() {
                 </tbody>
               </table>
               <div ref={bottomRef} />
-            </div>
+            </ScrollArea>
 
             {selected && (
               <DetailPanel entry={selected} onClose={() => setSelected(null)} />
@@ -450,35 +348,24 @@ function Panel() {
       )}
 
       {/* toggle button */}
-      <button
+      <Button
+        variant="outline"
+        size="sm"
+        className="fixed bottom-4 right-4 z-9999 font-mono gap-1.5"
         onClick={() => setOpen((v) => !v)}
-        style={{
-          position: "fixed",
-          bottom: "16px",
-          right: "16px",
-          zIndex: 9999,
-          background: open ? "#1e293b" : "#0f172a",
-          border: "1px solid #334155",
-          borderRadius: "6px",
-          color: "#e2e8f0",
-          cursor: "pointer",
-          padding: "6px 12px",
-          fontFamily: "monospace",
-          fontSize: "12px",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-        }}
       >
-        <span style={{ color: entries.length > 0 ? "#22c55e" : "#475569" }}>●</span>
-        SSR Network
+        <span className={entries.length > 0 ? "text-green-500" : "text-muted-foreground"}>●</span>
+        Server Network
         {entries.length > 0 && (
-          <span style={{ background: "#1d4ed8", borderRadius: "10px", padding: "1px 6px", fontSize: "10px" }}>
+          <Badge variant="secondary" className="ml-0.5 tabular-nums">
             {entries.length}
-          </span>
+          </Badge>
         )}
-      </button>
-    </>
+      </Button>
+    </div>
   );
+}
+
+export default function DevNetworkPanel() {
+  return <Panel />;
 }
