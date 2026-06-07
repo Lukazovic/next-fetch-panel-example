@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Settings2Icon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import {
+  Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type LogEntry = {
   id: string;
@@ -22,19 +32,60 @@ type LogEntry = {
   responseBody: string | null;
 };
 
+type PanelMode = "sheet" | "fixed";
+type SheetSide = "bottom" | "right" | "left" | "top";
+
+type PanelConfig = {
+  mode: PanelMode;
+  sheetSide: SheetSide;
+  sheetModal: boolean;
+  width: number;
+  height: number;
+};
+
+const DEFAULT_CONFIG: PanelConfig = {
+  mode: "sheet",
+  sheetSide: "bottom",
+  sheetModal: false,
+  width: 820,
+  height: 420,
+};
+
+const STORAGE_KEY = "ssr-panel-config";
+
+// ─── Config hook ─────────────────────────────────────────────────────────────
+
+function usePanelConfig() {
+  const [config, setConfig] = useState<PanelConfig>(() => {
+    if (typeof window === "undefined") return DEFAULT_CONFIG;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+    } catch { /* ignore */ }
+    return DEFAULT_CONFIG;
+  });
+
+  const update = useCallback((patch: Partial<PanelConfig>) => {
+    setConfig((prev) => {
+      const next = { ...prev, ...patch };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  return { config, update };
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 const MAX_ENTRIES = 100;
 
 const METHOD_COLORS: Record<string, string> = {
-  GET: "text-blue-400",
-  POST: "text-violet-400",
-  PUT: "text-orange-400",
-  PATCH: "text-orange-400",
-  DELETE: "text-red-400",
+  GET: "text-blue-400", POST: "text-violet-400",
+  PUT: "text-orange-400", PATCH: "text-orange-400", DELETE: "text-red-400",
 };
 
-function methodClass(method: string) {
-  return METHOD_COLORS[method] ?? "text-slate-400";
-}
+function methodClass(m: string) { return METHOD_COLORS[m] ?? "text-slate-400"; }
 
 function statusClass(status: number | null, error?: string) {
   if (error || status === null) return "text-red-400";
@@ -51,23 +102,159 @@ function durationBarColor(ms: number) {
 
 function formatTs(ts: number) {
   return new Date(ts).toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    fractionalSecondDigits: 3,
+    hour12: false, hour: "2-digit", minute: "2-digit",
+    second: "2-digit", fractionalSecondDigits: 3,
   });
 }
 
 function tryPrettyJson(text: string) {
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
+  try { return JSON.stringify(JSON.parse(text), null, 2); }
+  catch { return text; }
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ─── UI atoms ────────────────────────────────────────────────────────────────
+
+function OptionButton({
+  active, onClick, children,
+}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors border",
+        active
+          ? "bg-primary text-primary-foreground border-primary"
+          : "bg-transparent text-muted-foreground border-border hover:bg-muted hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function NumInput({
+  label, value, onChange, min = 200, max = 2000,
+}: { label: string; value: number; onChange: (v: number) => void; min?: number; max?: number }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            if (!isNaN(n) && n >= min && n <= max) onChange(n);
+          }}
+          className="w-24 rounded-md border border-border bg-muted px-2 py-1 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+        />
+        <span className="text-xs text-muted-foreground">px</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Settings dialog ─────────────────────────────────────────────────────────
+
+function SettingsDialog({
+  config, update, open, onOpenChange,
+}: {
+  config: PanelConfig;
+  update: (p: Partial<PanelConfig>) => void;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const isHorizontal = config.sheetSide === "bottom" || config.sheetSide === "top";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="dark bg-zinc-950 text-zinc-100 border-zinc-800 ring-zinc-800 sm:max-w-lg gap-0 p-0 overflow-hidden"
+        showCloseButton={false}
+      >
+        <DialogHeader className="px-5 pt-5 pb-4 border-b border-border">
+          <DialogTitle className="text-sm font-semibold text-foreground">Panel Settings</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Preferences are saved to localStorage automatically.
+          </DialogDescription>
+        </DialogHeader>
+
+        <ScrollArea className="max-h-[60vh]">
+          <div className="flex flex-col gap-5 px-5 py-4 text-xs">
+
+            {/* Display mode */}
+            <div className="flex flex-col gap-2">
+              <p className="font-medium text-foreground">Display mode</p>
+              <div className="flex gap-2">
+                <OptionButton active={config.mode === "sheet"} onClick={() => update({ mode: "sheet" })}>Sheet</OptionButton>
+                <OptionButton active={config.mode === "fixed"} onClick={() => update({ mode: "fixed" })}>Fixed modal</OptionButton>
+              </div>
+            </div>
+
+            <Separator className="bg-border" />
+
+            {/* Sheet options */}
+            {config.mode === "sheet" && (
+              <>
+                <div className="flex flex-col gap-2">
+                  <p className="font-medium text-foreground">Sheet side</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {(["bottom", "right", "top", "left"] as SheetSide[]).map((s) => (
+                      <OptionButton key={s} active={config.sheetSide === s} onClick={() => update({ sheetSide: s })}>
+                        {s.charAt(0).toUpperCase() + s.slice(1)}
+                      </OptionButton>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <p className="font-medium text-foreground">Page interaction</p>
+                  <div className="flex gap-2">
+                    <OptionButton active={!config.sheetModal} onClick={() => update({ sheetModal: false })}>
+                      Allow (non-modal)
+                    </OptionButton>
+                    <OptionButton active={config.sheetModal} onClick={() => update({ sheetModal: true })}>
+                      Block (modal)
+                    </OptionButton>
+                  </div>
+                  <p className="text-muted-foreground text-[11px]">
+                    Non-modal lets you click the page while the panel is open.
+                  </p>
+                </div>
+
+                <div className="flex gap-6">
+                  {isHorizontal
+                    ? <NumInput label="Height" value={config.height} onChange={(v) => update({ height: v })} />
+                    : <NumInput label="Width"  value={config.width}  onChange={(v) => update({ width: v })} />
+                  }
+                </div>
+              </>
+            )}
+
+            {/* Fixed modal options */}
+            {config.mode === "fixed" && (
+              <div className="flex flex-col gap-4">
+                <p className="font-medium text-foreground">Dimensions</p>
+                <div className="flex gap-6">
+                  <NumInput label="Width"  value={config.width}  onChange={(v) => update({ width: v })} />
+                  <NumInput label="Height" value={config.height} onChange={(v) => update({ height: v })} />
+                </div>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+
+        <div className="flex justify-end border-t border-border px-5 py-3">
+          <DialogClose render={<Button variant="outline" size="sm">Close</Button>} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Detail panel ─────────────────────────────────────────────────────────────
 
 function HeaderList({ headers }: { headers: Record<string, string> | undefined | null }) {
   const entries = Object.entries(headers ?? {});
@@ -85,21 +272,13 @@ function HeaderList({ headers }: { headers: Record<string, string> | undefined |
   );
 }
 
-function BodyViewer({
-  body,
-  contentType,
-  emptyLabel,
-}: {
+function BodyViewer({ body, contentType, emptyLabel }: {
   body: string | null | undefined;
   contentType: string | null;
   emptyLabel: string;
 }) {
-  if (!body)
-    return <p className="text-muted-foreground text-[11px]">{emptyLabel}</p>;
-  const isJson =
-    contentType?.includes("json") ||
-    body.trimStart().startsWith("{") ||
-    body.trimStart().startsWith("[");
+  if (!body) return <p className="text-muted-foreground text-[11px]">{emptyLabel}</p>;
+  const isJson = contentType?.includes("json") || body.trimStart().startsWith("{") || body.trimStart().startsWith("[");
   return (
     <pre className="text-[11px] text-foreground whitespace-pre-wrap break-all leading-relaxed">
       {isJson ? tryPrettyJson(body) : body}
@@ -113,7 +292,6 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
 
   return (
     <div className="w-75 shrink-0 border-l border-border flex flex-col overflow-hidden">
-      {/* header */}
       <div className="flex shrink-0 items-center justify-between border-b border-border px-2.5 py-1.5 gap-2">
         <span className="truncate text-[11px] font-semibold text-foreground" title={entry.url}>
           {pathname}
@@ -123,16 +301,10 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
         </Button>
       </div>
 
-      {/* tabs */}
       <Tabs defaultValue="general" className="flex flex-col flex-1 overflow-hidden gap-0">
-        <TabsList
-          variant="line"
-          className="shrink-0 w-full justify-start rounded-none border-b border-border bg-transparent h-auto px-1 overflow-x-auto scrollbar-none"
-        >
+        <TabsList variant="line" className="shrink-0 w-full justify-start rounded-none border-b border-border bg-transparent h-auto px-1 overflow-x-auto scrollbar-none">
           {(["general", "headers", "payload", "response"] as const).map((v) => (
-            <TabsTrigger key={v} value={v} className="text-[11px] capitalize px-2.5 py-1.5">
-              {v}
-            </TabsTrigger>
+            <TabsTrigger key={v} value={v} className="text-[11px] capitalize px-2.5 py-1.5">{v}</TabsTrigger>
           ))}
         </TabsList>
 
@@ -140,32 +312,27 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
           <TabsContent value="general" className="h-full m-0">
             <ScrollArea className="h-full">
               <div className="flex flex-col gap-3 p-3 text-[11px]">
-                {[
-                  ["Request URL",   entry.url],
+                {([
+                  ["Request URL",    entry.url],
                   ["Request Method", entry.method],
-                  ["Status Code",   entry.status != null ? `${entry.status}${entry.statusText ? " " + entry.statusText : ""}` : "—"],
-                  ["Started at",    formatTs(entry.ts)],
-                  ["Duration",      `${entry.duration}ms`],
+                  ["Status Code",    entry.status != null ? `${entry.status}${entry.statusText ? " " + entry.statusText : ""}` : "—"],
+                  ["Started at",     formatTs(entry.ts)],
+                  ["Duration",       `${entry.duration}ms`],
                   ...(entry.error ? [["Error", entry.error]] : []),
-                ].map(([label, value]) => (
+                ] as [string, string][]).map(([label, value]) => (
                   <div key={label}>
                     <p className="text-muted-foreground mb-0.5">{label}</p>
-                    <p className={cn(
-                      "break-all leading-relaxed",
-                      label === "Status Code" ? statusClass(entry.status, entry.error) :
-                      label === "Error"       ? "text-red-400" : "text-foreground"
-                    )}>
-                      {value}
-                    </p>
+                    <p className={cn("break-all leading-relaxed",
+                      label === "Status Code" ? statusClass(entry.status, entry.error)
+                        : label === "Error" ? "text-red-400" : "text-foreground"
+                    )}>{value}</p>
                   </div>
                 ))}
                 <div>
                   <p className="text-muted-foreground mb-1.5">Duration bar</p>
                   <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className={cn("h-full rounded-full", durationBarColor(entry.duration))}
-                      style={{ width: `${Math.min((entry.duration / 2000) * 100, 100)}%` }}
-                    />
+                    <div className={cn("h-full rounded-full", durationBarColor(entry.duration))}
+                      style={{ width: `${Math.min((entry.duration / 2000) * 100, 100)}%` }} />
                   </div>
                   <p className="text-[10px] text-muted-foreground/50 mt-1">scale: 0–2000ms</p>
                 </div>
@@ -176,14 +343,12 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
           <TabsContent value="headers" className="h-full m-0">
             <ScrollArea className="h-full">
               <div className="flex flex-col gap-4 p-3">
-                <div>
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Response Headers</p>
-                  <HeaderList headers={entry.responseHeaders} />
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Request Headers</p>
-                  <HeaderList headers={entry.requestHeaders} />
-                </div>
+                {[["Response Headers", entry.responseHeaders], ["Request Headers", entry.requestHeaders]].map(([label, hdrs]) => (
+                  <div key={label as string}>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">{label as string}</p>
+                    <HeaderList headers={hdrs as Record<string, string>} />
+                  </div>
+                ))}
               </div>
             </ScrollArea>
           </TabsContent>
@@ -191,11 +356,7 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
           <TabsContent value="payload" className="h-full m-0">
             <ScrollArea className="h-full">
               <div className="p-3">
-                <BodyViewer
-                  body={entry.requestBody}
-                  contentType={entry.requestHeaders?.["content-type"] ?? null}
-                  emptyLabel="No request body"
-                />
+                <BodyViewer body={entry.requestBody} contentType={entry.requestHeaders?.["content-type"] ?? null} emptyLabel="No request body" />
               </div>
             </ScrollArea>
           </TabsContent>
@@ -203,11 +364,7 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
           <TabsContent value="response" className="h-full m-0">
             <ScrollArea className="h-full">
               <div className="p-3">
-                <BodyViewer
-                  body={entry.responseBody}
-                  contentType={entry.responseHeaders?.["content-type"] ?? null}
-                  emptyLabel="No response body"
-                />
+                <BodyViewer body={entry.responseBody} contentType={entry.responseHeaders?.["content-type"] ?? null} emptyLabel="No response body" />
               </div>
             </ScrollArea>
           </TabsContent>
@@ -217,13 +374,114 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
   );
 }
 
+// ─── Panel inner content ──────────────────────────────────────────────────────
+
+function PanelInner({
+  entries, selected, setSelected, setEntries, onOpenSettings, onClose, bottomRef,
+}: {
+  entries: LogEntry[];
+  selected: LogEntry | null;
+  setSelected: (e: LogEntry | null) => void;
+  setEntries: (e: LogEntry[]) => void;
+  onOpenSettings: () => void;
+  onClose: () => void;
+  bottomRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <>
+      {/* toolbar */}
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5">
+        <span className="font-semibold text-foreground">
+          SSR Network
+          {entries.length > 0 && (
+            <span className="ml-1.5 font-normal text-muted-foreground">{entries.length} requests</span>
+          )}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon-xs" className="text-muted-foreground" onClick={onOpenSettings}>
+            <Settings2Icon />
+          </Button>
+          <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => { setEntries([]); setSelected(null); }}>
+            Clear
+          </Button>
+          <Button variant="ghost" size="icon-xs" className="text-muted-foreground ml-1" onClick={onClose}>
+            <XIcon />
+          </Button>
+        </div>
+      </div>
+
+      {/* body */}
+      <div className="flex flex-1 overflow-hidden">
+        <ScrollArea className="flex-1 min-w-0">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="sticky top-0 z-10 bg-zinc-950 border-b border-border">
+                {[
+                  { label: "Method",   cls: "w-[58px] text-left"  },
+                  { label: "Status",   cls: "w-[52px] text-left"  },
+                  { label: "URL",      cls: "text-left"           },
+                  { label: "Duration", cls: "w-[68px] text-right" },
+                ].map(({ label, cls }) => (
+                  <th key={label} className={cn("px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap", cls)}>
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.length === 0 ? (
+                <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">No requests yet</td></tr>
+              ) : (
+                entries.map((entry) => {
+                  const isSelected = selected?.id === entry.id;
+                  return (
+                    <tr
+                      key={entry.id}
+                      title={entry.error}
+                      onClick={() => setSelected(isSelected ? null : entry)}
+                      className={cn(
+                        "cursor-pointer border-b border-border transition-colors",
+                        isSelected ? "bg-primary/15"
+                          : entry.error ? "bg-destructive/5 hover:bg-destructive/10"
+                          : "hover:bg-muted/40"
+                      )}
+                    >
+                      <td className="px-2.5 py-1.25 whitespace-nowrap">
+                        <span className={cn("font-semibold text-[11px]", methodClass(entry.method))}>{entry.method}</span>
+                      </td>
+                      <td className="px-2.5 py-1.25 whitespace-nowrap">
+                        <span className={cn("font-semibold", statusClass(entry.status, entry.error))}>{entry.status ?? "ERR"}</span>
+                      </td>
+                      <td className="px-2.5 py-1.25 max-w-50 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/80">
+                        {entry.url}
+                      </td>
+                      <td className="px-2.5 py-1.25 text-right whitespace-nowrap text-muted-foreground">
+                        {entry.duration}ms
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+          <div ref={bottomRef} />
+        </ScrollArea>
+
+        {selected && <DetailPanel entry={selected} onClose={() => setSelected(null)} />}
+      </div>
+    </>
+  );
+}
+
 // ─── Main Panel ───────────────────────────────────────────────────────────────
 
 function Panel() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<LogEntry | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { config, update } = usePanelConfig();
 
   useEffect(() => {
     const es = new EventSource("/api/dev-network");
@@ -240,129 +498,79 @@ function Panel() {
   }, []);
 
   useEffect(() => {
-    if (open && !selected) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
+    if (open && !selected) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [entries, open, selected]);
 
+  const innerProps = {
+    entries, selected, setSelected, setEntries,
+    onOpenSettings: () => setSettingsOpen(true),
+    onClose: () => setOpen(false),
+    bottomRef,
+  };
+
+  const isHorizontal = config.sheetSide === "bottom" || config.sheetSide === "top";
+  const sheetSize = isHorizontal
+    ? { height: config.height }
+    : { width: config.width };
+
   return (
-    <div className="dark text-foreground">
-      {open && (
-        <div
-          className="fixed bottom-14 right-4 z-9998 flex flex-col rounded-lg border border-border bg-card font-mono text-xs shadow-2xl transition-[width] duration-150"
-          style={{ width: selected ? 820 : 540, height: 420 }}
+    <>
+      {/* Settings dialog */}
+      <div className="dark">
+        <SettingsDialog config={config} update={update} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      </div>
+
+      {/* Panel — sheet mode */}
+      {config.mode === "sheet" && (
+        <Sheet
+          open={open}
+          onOpenChange={(next) => { if (next || config.sheetModal) setOpen(next); }}
+          modal={config.sheetModal}
         >
-          {/* toolbar */}
-          <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5">
-            <span className="font-semibold text-foreground">
-              Server Network
-              {entries.length > 0 && (
-                <span className="ml-1.5 font-normal text-muted-foreground">
-                  {entries.length} requests
-                </span>
-              )}
-            </span>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              onClick={() => { setEntries([]); setSelected(null); }}
-            >
-              Clear
-            </Button>
-          </div>
+          <SheetContent
+            side={config.sheetSide}
+            showCloseButton={false}
+            showOverlay={config.sheetModal}
+            className="dark font-mono text-xs gap-0 p-0 border-zinc-800 bg-zinc-950 text-zinc-100"
+            style={sheetSize}
+          >
+            <SheetTitle className="sr-only">SSR Network Panel</SheetTitle>
+            <SheetDescription className="sr-only">Real-time SSR fetch inspector</SheetDescription>
+            <PanelInner {...innerProps} />
+          </SheetContent>
+        </Sheet>
+      )}
 
-          {/* body */}
-          <div className="flex flex-1 overflow-hidden">
-            {/* table */}
-            <ScrollArea className="flex-1 min-w-0">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="sticky top-0 z-10 bg-card border-b border-border">
-                    {[
-                      { label: "Method",   cls: "w-[58px] text-left"  },
-                      { label: "Status",   cls: "w-[52px] text-left"  },
-                      { label: "URL",      cls: "text-left"           },
-                      { label: "Duration", cls: "w-[68px] text-right" },
-                    ].map(({ label, cls }) => (
-                      <th key={label} className={cn("px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap", cls)}>
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="py-6 text-center text-muted-foreground">
-                        No requests yet
-                      </td>
-                    </tr>
-                  ) : (
-                    entries.map((entry) => {
-                      const isSelected = selected?.id === entry.id;
-                      return (
-                        <tr
-                          key={entry.id}
-                          title={entry.error}
-                          onClick={() => setSelected(isSelected ? null : entry)}
-                          className={cn(
-                            "cursor-pointer border-b border-border transition-colors",
-                            isSelected
-                              ? "bg-primary/15"
-                              : entry.error
-                              ? "bg-destructive/5 hover:bg-destructive/10"
-                              : "hover:bg-muted/40"
-                          )}
-                        >
-                          <td className="px-2.5 py-1.25 whitespace-nowrap">
-                            <span className={cn("font-semibold text-[11px]", methodClass(entry.method))}>
-                              {entry.method}
-                            </span>
-                          </td>
-                          <td className="px-2.5 py-1.25 whitespace-nowrap">
-                            <span className={cn("font-semibold", statusClass(entry.status, entry.error))}>
-                              {entry.status ?? "ERR"}
-                            </span>
-                          </td>
-                          <td className="px-2.5 py-1.25 max-w-50 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/80">
-                            {entry.url}
-                          </td>
-                          <td className="px-2.5 py-1.25 text-right whitespace-nowrap text-muted-foreground">
-                            {entry.duration}ms
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-              <div ref={bottomRef} />
-            </ScrollArea>
-
-            {selected && (
-              <DetailPanel entry={selected} onClose={() => setSelected(null)} />
-            )}
+      {/* Panel — fixed modal mode */}
+      {config.mode === "fixed" && open && (
+        <div className="dark text-foreground">
+          <div
+            className="fixed bottom-14 right-4 z-9998 flex flex-col rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-100 font-mono text-xs shadow-2xl"
+            style={{ width: config.width, height: config.height }}
+          >
+            <PanelInner {...innerProps} />
           </div>
         </div>
       )}
 
-      {/* toggle button */}
-      <Button
-        variant="outline"
-        size="sm"
-        className="fixed bottom-4 right-4 z-9999 font-mono gap-1.5"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className={entries.length > 0 ? "text-green-500" : "text-muted-foreground"}>●</span>
-        Server Network
-        {entries.length > 0 && (
-          <Badge variant="secondary" className="ml-0.5 tabular-nums">
-            {entries.length}
-          </Badge>
-        )}
-      </Button>
-    </div>
+      {/* Toggle button — hidden while panel is open */}
+      {!open && (
+      <div className="dark text-foreground">
+        <Button
+          variant="outline"
+          size="sm"
+          className="fixed bottom-4 right-4 z-9999 font-mono gap-1.5"
+          onClick={() => setOpen(true)}
+        >
+          <span className={entries.length > 0 ? "text-green-500" : "text-muted-foreground"}>●</span>
+          SSR Network
+          {entries.length > 0 && (
+            <Badge variant="secondary" className="ml-0.5 tabular-nums">{entries.length}</Badge>
+          )}
+        </Button>
+      </div>
+      )}
+    </>
   );
 }
 
