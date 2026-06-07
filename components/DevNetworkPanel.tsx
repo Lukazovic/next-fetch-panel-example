@@ -313,7 +313,7 @@ function Panel() {
             bottom: "52px",
             right: "16px",
             width: `${panelWidth}px`,
-            maxHeight: "420px",
+            height: "420px",
             background: "#0f172a",
             border: "1px solid #1e293b",
             borderRadius: "8px",
