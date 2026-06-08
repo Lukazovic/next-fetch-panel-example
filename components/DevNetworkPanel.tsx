@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useGroupRef } from "react-resizable-panels";
 import { Settings2Icon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
   Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle,
@@ -43,6 +45,7 @@ type PanelConfig = {
   width: number;
   height: number;
   colorScheme: ColorScheme;
+  detailSize: number; // percentage of the panel body width
 };
 
 const DEFAULT_CONFIG: PanelConfig = {
@@ -52,6 +55,7 @@ const DEFAULT_CONFIG: PanelConfig = {
   width: 820,
   height: 420,
   colorScheme: "system",
+  detailSize: 40,
 };
 
 const STORAGE_KEY = "ssr-panel-config";
@@ -334,7 +338,7 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
   try { pathname = new URL(entry.url).pathname; } catch { /* keep full url */ }
 
   return (
-    <div className="w-75 shrink-0 border-l border-border flex flex-col overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden border-border">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-2.5 py-1.5 gap-2">
         <span className="truncate text-[11px] font-semibold text-foreground" title={entry.url}>
           {pathname}
@@ -421,6 +425,7 @@ function DetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void 
 
 function PanelInner({
   entries, selected, setSelected, setEntries, onOpenSettings, onClose, bottomRef,
+  detailSize, onDetailSizeChange,
 }: {
   entries: LogEntry[];
   selected: LogEntry | null;
@@ -429,7 +434,29 @@ function PanelInner({
   onOpenSettings: () => void;
   onClose: () => void;
   bottomRef: React.RefObject<HTMLDivElement | null>;
+  detailSize: number;
+  onDetailSizeChange: (size: number) => void;
 }) {
+  const groupRef = useGroupRef();
+  const detailSizeRef = useRef(detailSize);
+  const wasSelectedRef = useRef(false);
+
+  useEffect(() => { detailSizeRef.current = detailSize; }, [detailSize]);
+
+  // When the detail panel first appears (null → non-null), set exact size via setLayout.
+  // setTimeout defers until after react-resizable-panels finishes registering the new panel.
+  useEffect(() => {
+    if (selected && !wasSelectedRef.current) {
+      const sz = detailSizeRef.current;
+      const id = setTimeout(() => {
+        groupRef.current?.setLayout({ main: 100 - sz, detail: sz });
+      }, 0);
+      wasSelectedRef.current = true;
+      return () => clearTimeout(id);
+    }
+    if (!selected) wasSelectedRef.current = false;
+  }, [selected, groupRef]);
+
   return (
     <>
       {/* toolbar */}
@@ -454,64 +481,81 @@ function PanelInner({
       </div>
 
       {/* body */}
-      <div className="flex flex-1 overflow-hidden">
-        <ScrollArea className="flex-1 min-w-0">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="sticky top-0 z-10 bg-background border-b border-border">
-                {[
-                  { label: "Method",   cls: "w-[58px] text-left"  },
-                  { label: "Status",   cls: "w-[52px] text-left"  },
-                  { label: "URL",      cls: "text-left"           },
-                  { label: "Duration", cls: "w-[68px] text-right" },
-                ].map(({ label, cls }) => (
-                  <th key={label} className={cn("px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap", cls)}>
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {entries.length === 0 ? (
-                <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">No requests yet</td></tr>
-              ) : (
-                entries.map((entry) => {
-                  const isSelected = selected?.id === entry.id;
-                  return (
-                    <tr
-                      key={entry.id}
-                      title={entry.error}
-                      onClick={() => setSelected(isSelected ? null : entry)}
-                      className={cn(
-                        "cursor-pointer border-b border-border transition-colors",
-                        isSelected ? "bg-primary/15"
-                          : entry.error ? "bg-destructive/5 hover:bg-destructive/10"
-                          : "hover:bg-muted/40"
-                      )}
-                    >
-                      <td className="px-2.5 py-1.25 whitespace-nowrap">
-                        <span className={cn("font-semibold text-[11px]", methodClass(entry.method))}>{entry.method}</span>
-                      </td>
-                      <td className="px-2.5 py-1.25 whitespace-nowrap">
-                        <span className={cn("font-semibold", statusClass(entry.status, entry.error))}>{entry.status ?? "ERR"}</span>
-                      </td>
-                      <td className="px-2.5 py-1.25 max-w-50 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/80">
-                        {entry.url}
-                      </td>
-                      <td className="px-2.5 py-1.25 text-right whitespace-nowrap text-muted-foreground">
-                        {entry.duration}ms
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-          <div ref={bottomRef} />
-        </ScrollArea>
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="flex-1 overflow-hidden"
+        groupRef={groupRef}
+        onLayoutChanged={(layout) => {
+          const sz = (layout as Record<string, number>)["detail"];
+          if (sz !== undefined && sz > 0) onDetailSizeChange(sz);
+        }}
+      >
+        <ResizablePanel id="main" minSize={10}>
+          <ScrollArea className="h-full">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="sticky top-0 z-10 bg-background border-b border-border">
+                  {[
+                    { label: "Method",   cls: "w-[58px] text-left"  },
+                    { label: "Status",   cls: "w-[52px] text-left"  },
+                    { label: "URL",      cls: "text-left"           },
+                    { label: "Duration", cls: "w-[68px] text-right" },
+                  ].map(({ label, cls }) => (
+                    <th key={label} className={cn("px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap", cls)}>
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.length === 0 ? (
+                  <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">No requests yet</td></tr>
+                ) : (
+                  entries.map((entry) => {
+                    const isSelected = selected?.id === entry.id;
+                    return (
+                      <tr
+                        key={entry.id}
+                        title={entry.error}
+                        onClick={() => setSelected(isSelected ? null : entry)}
+                        className={cn(
+                          "cursor-pointer border-b border-border transition-colors",
+                          isSelected ? "bg-primary/15"
+                            : entry.error ? "bg-destructive/5 hover:bg-destructive/10"
+                            : "hover:bg-muted/40"
+                        )}
+                      >
+                        <td className="px-2.5 py-1.25 whitespace-nowrap">
+                          <span className={cn("font-semibold text-[11px]", methodClass(entry.method))}>{entry.method}</span>
+                        </td>
+                        <td className="px-2.5 py-1.25 whitespace-nowrap">
+                          <span className={cn("font-semibold", statusClass(entry.status, entry.error))}>{entry.status ?? "ERR"}</span>
+                        </td>
+                        <td className="px-2.5 py-1.25 max-w-50 overflow-hidden text-ellipsis whitespace-nowrap text-foreground/80">
+                          {entry.url}
+                        </td>
+                        <td className="px-2.5 py-1.25 text-right whitespace-nowrap text-muted-foreground">
+                          {entry.duration}ms
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+            <div ref={bottomRef} />
+          </ScrollArea>
+        </ResizablePanel>
 
-        {selected && <DetailPanel entry={selected} onClose={() => setSelected(null)} />}
-      </div>
+        {selected && (
+          <>
+            <ResizableHandle withHandle />
+            <ResizablePanel id="detail" minSize={10}>
+              <DetailPanel entry={selected} onClose={() => setSelected(null)} />
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
     </>
   );
 }
@@ -551,6 +595,8 @@ function Panel() {
     onOpenSettings: () => setSettingsOpen(true),
     onClose: () => setOpen(false),
     bottomRef,
+    detailSize: config.detailSize,
+    onDetailSizeChange: (size: number) => update({ detailSize: size }),
   };
 
   const isHorizontal = config.sheetSide === "bottom" || config.sheetSide === "top";
