@@ -636,7 +636,7 @@ function Panel() {
 
       {/* Panel — fixed modal mode */}
       {config.mode === "fixed" && open && (
-        <div className={cn(isDark && "dark")}>
+        <div className={cn(isDark && "dark")} suppressHydrationWarning>
           <div
             className="fixed bottom-14 right-4 z-9998 flex flex-col rounded-lg border border-border bg-background text-foreground font-mono text-xs shadow-2xl"
             style={{ width: config.width, height: config.height }}
@@ -648,7 +648,7 @@ function Panel() {
 
       {/* Toggle button — hidden while panel is open */}
       {!open && (
-        <div className={cn(isDark && "dark")}>
+        <div className={cn(isDark && "dark")} suppressHydrationWarning>
           <Button
             variant="outline"
             size="sm"
