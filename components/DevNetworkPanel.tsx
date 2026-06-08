@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useGroupRef } from "react-resizable-panels";
 import { Settings2Icon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -568,9 +568,11 @@ function Panel() {
   const [selected, setSelected] = useState<LogEntry | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+
   const { config, update } = usePanelConfig();
   const theme = useEffectiveTheme(config.colorScheme);
-  const isDark = theme === "dark";
+  const isDark = mounted && theme === "dark";
 
   useEffect(() => {
     const es = new EventSource("/api/dev-network");
@@ -598,6 +600,8 @@ function Panel() {
     detailSize: config.detailSize,
     onDetailSizeChange: (size: number) => update({ detailSize: size }),
   };
+
+  if (!mounted) return null;
 
   const isHorizontal = config.sheetSide === "bottom" || config.sheetSide === "top";
   const sheetSize = isHorizontal
@@ -652,7 +656,7 @@ function Panel() {
           <Button
             variant="outline"
             size="sm"
-            className="fixed bottom-4 right-4 z-9999 font-mono gap-1.5"
+            className="fixed bottom-4 right-4 z-9999 font-mono gap-1.5 shadow-md dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
             onClick={() => setOpen(true)}
           >
             <span className={entries.length > 0 ? "text-green-500" : "text-muted-foreground"}>●</span>
