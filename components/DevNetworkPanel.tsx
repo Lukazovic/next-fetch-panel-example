@@ -462,7 +462,7 @@ function PanelInner({
       {/* toolbar */}
       <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5">
         <span className="font-semibold text-foreground">
-          SSR Network
+          Server Network
           {entries.length > 0 && (
             <span className="ml-1.5 font-normal text-muted-foreground">{entries.length} requests</span>
           )}
@@ -631,7 +631,7 @@ function Panel() {
             className={cn(isDark && "dark", "bg-background text-foreground border-border font-mono text-xs gap-0 p-0")}
             style={sheetSize}
           >
-            <SheetTitle className="sr-only">SSR Network Panel</SheetTitle>
+            <SheetTitle className="sr-only">Server Network Panel</SheetTitle>
             <SheetDescription className="sr-only">Real-time SSR fetch inspector</SheetDescription>
             <PanelInner {...innerProps} />
           </SheetContent>
@@ -660,7 +660,7 @@ function Panel() {
             onClick={() => setOpen(true)}
           >
             <span className={entries.length > 0 ? "text-green-500" : "text-muted-foreground"}>●</span>
-            SSR Network
+            Server Network
             {entries.length > 0 && (
               <Badge variant="secondary" className="ml-0.5 tabular-nums">{entries.length}</Badge>
             )}
