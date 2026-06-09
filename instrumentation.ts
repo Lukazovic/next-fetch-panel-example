@@ -1,1 +1,1 @@
-export { register } from "./server-network-panel/patch";
+export { register } from "next-fetch-panel/patch";
