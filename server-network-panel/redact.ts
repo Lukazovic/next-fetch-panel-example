@@ -1,4 +1,4 @@
-import type { LogEntry } from "./dev-log-store";
+import type { LogEntry } from "./store";
 
 /**
  * Edit these lists to control which values are hidden in the panel.

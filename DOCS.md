@@ -135,32 +135,130 @@ A `"use client"` component rendered unconditionally inside `RootLayout`. On moun
 
 ## File Structure
 
+The panel logic lives entirely in `server-network-panel/`. The four app-level files that integrate it are one-line re-exports.
+
 ```
-instrumentation.ts                  Next.js server startup hook (fetch patch + session tagging + redaction)
-middleware.ts                       Session cookie generation + x-dev-sid header forwarding
-lib/
-  dev-log-store.ts                  Singleton pub/sub store + ring buffer (entries carry sessionId)
-  redact.ts                         Configurable redaction of secrets from URLs, headers, and bodies
+server-network-panel/        ← self-contained library folder
+  index.ts                   Public API: exports DevNetworkPanel + LogEntry type
+  store.ts                   Singleton pub/sub store + 100-entry ring buffer
+  redact.ts                  Configurable secret redaction
+  patch.ts                   globalThis.fetch patch + register() export
+  middleware.ts              Browser-session cookie + x-dev-sid header logic
+  route.ts                   SSE streaming route handler (session-scoped)
+  Panel.tsx                  "use client" floating panel component
+
+── Integration (thin wrappers) ──────────────────────────────────────────────
+
+instrumentation.ts           export { register } from "./server-network-panel/patch"
+middleware.ts                export { middleware, config } from "./server-network-panel/middleware"
+app/api/dev-network/route.ts export { dynamic, GET } from "@/server-network-panel/route"
+app/layout.tsx               import { DevNetworkPanel } from "@/server-network-panel"
+
+── App pages ────────────────────────────────────────────────────────────────
+
 app/
-  layout.tsx                        Mounts <DevNetworkPanel /> globally
-  page.tsx                          Hub page with links to /posts and /users
-  posts/page.tsx                    SSR-paginated posts (jsonplaceholder API, native fetch)
-  users/page.tsx                    SSR-sorted users (jsonplaceholder API, axios + fetch adapter)
-  api/
-    dev-network/route.ts            SSE streaming endpoint (session-scoped)
-components/
-  DevNetworkPanel.tsx               Floating panel (all client logic)
-  ui/
-    button.tsx                      shadcn Button (cursor-pointer added)
-    badge.tsx                       shadcn Badge
-    dialog.tsx                      shadcn Dialog (z-index raised to z-10000)
-    sheet.tsx                       shadcn Sheet (showOverlay prop added)
-    tabs.tsx                        shadcn Tabs (cursor-pointer added)
-    scroll-area.tsx                 shadcn ScrollArea
-    separator.tsx                   shadcn Separator
-    label.tsx                       shadcn Label
-    resizable.tsx                   shadcn Resizable (react-resizable-panels v4)
+  page.tsx                   Hub page with links to /posts and /users
+  posts/page.tsx             SSR-paginated posts (native fetch, api_key redaction example)
+  users/page.tsx             SSR-sorted users (axios with fetch adapter)
+
+── shadcn UI primitives (peer dependency of Panel.tsx) ──────────────────────
+
+components/ui/
+  button.tsx                 shadcn Button (cursor-pointer added)
+  badge.tsx                  shadcn Badge
+  dialog.tsx                 shadcn Dialog (z-index raised to z-10000)
+  sheet.tsx                  shadcn Sheet (showOverlay prop added)
+  tabs.tsx                   shadcn Tabs (cursor-pointer added)
+  scroll-area.tsx            shadcn ScrollArea
+  separator.tsx              shadcn Separator
+  label.tsx                  shadcn Label
+  resizable.tsx              shadcn Resizable (react-resizable-panels v4)
 ```
+
+### Adding the panel to a new Next.js app
+
+1. Copy the `server-network-panel/` folder into the project root.
+2. Add these four wires — each has a simple one-liner for new projects and a composable form for projects that already have logic in those files:
+
+#### `instrumentation.ts`
+
+```ts
+// Simple — nothing else in register():
+export { register } from "./server-network-panel/patch";
+
+// Composing with existing setup (e.g. OpenTelemetry):
+import { registerDevPanel } from "./server-network-panel/patch";
+import { registerOTel } from "@vercel/otel";
+
+export async function register() {
+  registerOTel("my-app");
+  await registerDevPanel();
+}
+```
+
+#### `middleware.ts`
+
+```ts
+// Simple — no other middleware logic:
+export { middleware, config } from "./server-network-panel/middleware";
+
+// Composing with existing logic (auth, i18n, etc.):
+import { withDevPanel } from "./server-network-panel/middleware";
+
+export const { middleware, config } = withDevPanel(async (request) => {
+  // Return a Response to short-circuit. Return nothing to continue normally.
+  if (!isAuthenticated(request))
+    return NextResponse.redirect(new URL("/login", request.url));
+});
+
+// Custom matcher:
+export const { middleware, config } = withDevPanel(handler, {
+  matcher: ["/api/:path*", "/((?!_next).*)"],
+});
+```
+
+#### `app/api/dev-network/route.ts`
+
+```ts
+// Simple — no access control:
+export { dynamic, GET } from "@/server-network-panel/route";
+
+// With authentication (guard runs before the SSE stream opens):
+import { createDevPanelRoute } from "@/server-network-panel/route";
+
+export const dynamic = "force-dynamic";
+export const GET = createDevPanelRoute({
+  guard: (request) => {
+    const token = request.headers.get("authorization");
+    if (!isValidToken(token)) return new Response("Forbidden", { status: 403 });
+  },
+});
+```
+
+#### `app/layout.tsx`
+
+```tsx
+import { DevNetworkPanel } from "@/server-network-panel";
+// Place <DevNetworkPanel /> wherever makes sense inside your layout's <body>.
+```
+
+3. Install peer dependencies: `react-resizable-panels`, `@base-ui/react`, `lucide-react`, `class-variance-authority`, `clsx`, `tailwind-merge`.
+4. Add the shadcn UI components listed above (or run `npx shadcn@latest add` for each).
+
+### How each composable function works
+
+| Function | File | Composable form | Simple form |
+|---|---|---|---|
+| `registerDevPanel()` | `patch.ts` | Call inside your own `register()` | `export { register }` |
+| `withDevPanel(handler?, opts?)` | `middleware.ts` | Pass your logic as `handler` | `export { middleware, config }` |
+| `createDevPanelRoute(opts?)` | `route.ts` | Pass `guard` for access control | `export { GET, dynamic }` |
+| `<DevNetworkPanel />` | `Panel.tsx` | Place anywhere in your layout | Same |
+
+**`withDevPanel`** — `handler` receives `NextRequest`. Return a `Response` to short-circuit (redirect, block, etc.); return `undefined`/`void` to continue. `withDevPanel` always creates the `NextResponse.next()` with `x-dev-sid` forwarded — never call it yourself inside the handler.
+
+**`createDevPanelRoute`** — `guard` receives the raw `Request`. Return a `Response` to block the SSE connection before it opens; return `undefined`/`void` to allow it.
+
+**`registerDevPanel`** — async, safe to call alongside other setup. Skips itself if `NEXT_RUNTIME !== "nodejs"`.
 
 ---
 

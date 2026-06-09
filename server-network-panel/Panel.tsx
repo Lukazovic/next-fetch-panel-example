@@ -16,23 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
+import type { LogEntry } from "./store";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-type LogEntry = {
-  id: string;
-  url: string;
-  method: string;
-  status: number | null;
-  statusText: string | null;
-  duration: number;
-  ts: number;
-  error?: string;
-  requestHeaders: Record<string, string>;
-  responseHeaders: Record<string, string>;
-  requestBody: string | null;
-  responseBody: string | null;
-};
 
 type PanelMode = "sheet" | "fixed";
 type SheetSide = "bottom" | "right" | "left" | "top";
