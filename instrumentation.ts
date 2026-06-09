@@ -19,6 +19,22 @@ function extractRequestBody(init?: RequestInit): string | null {
   return "[binary]";
 }
 
+// Cached reference — imported once, called per-request to read from the current ALS context.
+let nextHeaders: typeof import("next/headers")["headers"] | null = null;
+
+async function getSessionId(): Promise<string | null> {
+  try {
+    if (!nextHeaders) {
+      const mod = await import("next/headers");
+      nextHeaders = mod.headers;
+    }
+    return (await nextHeaders()).get("x-dev-sid");
+  } catch {
+    // Called outside a Next.js request context (startup, background tasks, etc.)
+    return null;
+  }
+}
+
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") {
     return;
@@ -43,6 +59,9 @@ export async function register() {
     const id = `${ts}-${Math.random().toString(36).slice(2, 8)}`;
     const requestHeaders = headersToObject(init?.headers);
     const requestBody = extractRequestBody(init);
+
+    // Read session ID from the current request's async context before starting the timer.
+    const sessionId = await getSessionId();
     const start = performance.now();
 
     try {
@@ -59,12 +78,14 @@ export async function register() {
           status: response.status, statusText: response.statusText,
           requestHeaders, responseHeaders,
           requestBody, responseBody: text.slice(0, BODY_LIMIT),
+          sessionId,
         }),
         () => devLogStore.push({
           id, url, method, ts, duration, error: undefined,
           status: response.status, statusText: response.statusText,
           requestHeaders, responseHeaders,
           requestBody, responseBody: null,
+          sessionId,
         }),
       );
 
@@ -77,6 +98,7 @@ export async function register() {
         status: null, statusText: null,
         requestHeaders, responseHeaders: {},
         requestBody, responseBody: null,
+        sessionId,
       });
       throw err;
     }

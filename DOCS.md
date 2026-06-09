@@ -31,23 +31,33 @@ The panel is always enabled (no `NODE_ENV` gate) so it can be used in any enviro
 ## Architecture
 
 ```
+Browser (request)
+│
+└── middleware.ts                ← runs on every request
+         │
+         ├── reads/creates __dev_sid session cookie
+         └── forwards it as x-dev-sid request header
+
 Server (Node.js runtime)
 │
 ├── instrumentation.ts          ← patches globalThis.fetch on startup
 │        │
+│        ├── reads x-dev-sid via headers() from the current request ALS context
 │        └──▶ lib/dev-log-store.ts   ← singleton pub/sub + 100-entry ring buffer
+│                                        entries tagged with sessionId
 │                                        (stored on globalThis to survive HMR)
 │
-└── app/api/dev-network/route.ts ← SSE endpoint
+└── app/api/dev-network/route.ts ← SSE endpoint (session-scoped)
          │
-         ├── replays buffer on connect (catches requests before browser loads)
-         └── streams new entries in real-time
+         ├── reads x-dev-sid from its own request headers
+         ├── replays only buffer entries matching sessionId
+         └── streams only new entries matching sessionId
 
 Browser (Client)
 │
 └── components/DevNetworkPanel.tsx  ← "use client" floating panel
          │
-         ├── EventSource → /api/dev-network
+         ├── EventSource → /api/dev-network  (browser sends __dev_sid cookie automatically)
          ├── Renders entries in a resizable table
          ├── Click-to-inspect detail pane (General / Headers / Payload / Response)
          └── localStorage-persisted settings
@@ -103,7 +113,17 @@ The store keeps a ring buffer of the last 100 entries and notifies all subscribe
 3. Subscribes to the store and streams new entries as `data: <json>\n\n` SSE frames
 4. Unsubscribes when the client disconnects (`cancel()`)
 
-### 4. Client Panel (`components/DevNetworkPanel.tsx`)
+### 4. Session Isolation (`middleware.ts` + `x-dev-sid` header)
+
+Every browser session gets a unique ID (`__dev_sid` cookie, generated on first visit and valid for one year). Middleware runs on every request, reads or creates this cookie, and **forwards it as the `x-dev-sid` request header**. Forwarding it as a header (rather than relying only on the cookie) is necessary because:
+
+- `headers()` from `next/headers` reads the **incoming request headers**, which include the forwarded `x-dev-sid` — this is available immediately, even on the very first page load before the `Set-Cookie` response is sent back.
+- Our patched `globalThis.fetch` runs in the same async context as the Server Component that called it. Because Next.js propagates its request context via `AsyncLocalStorage`, `headers()` works inside the patch, letting us read `x-dev-sid` and tag every `LogEntry` with `sessionId`.
+- The SSE endpoint at `/api/dev-network` also goes through middleware, so its own request has `x-dev-sid` set. The endpoint reads this header and only replays/streams entries whose `sessionId` matches the connecting client.
+
+The result: each browser sees only the server-side fetches it triggered, even in a multi-user environment.
+
+### 5. Client Panel (`components/DevNetworkPanel.tsx`)
 
 A `"use client"` component rendered unconditionally inside `RootLayout`. On mount it:
 
@@ -116,16 +136,17 @@ A `"use client"` component rendered unconditionally inside `RootLayout`. On moun
 ## File Structure
 
 ```
-instrumentation.ts                  Next.js server startup hook (fetch patch)
+instrumentation.ts                  Next.js server startup hook (fetch patch + session tagging)
+middleware.ts                       Session cookie generation + x-dev-sid header forwarding
 lib/
-  dev-log-store.ts                  Singleton pub/sub store + ring buffer
+  dev-log-store.ts                  Singleton pub/sub store + ring buffer (entries carry sessionId)
 app/
   layout.tsx                        Mounts <DevNetworkPanel /> globally
   page.tsx                          Hub page with links to /posts and /users
-  posts/page.tsx                    SSR-paginated posts (jsonplaceholder API)
-  users/page.tsx                    SSR-sorted users (jsonplaceholder API)
+  posts/page.tsx                    SSR-paginated posts (jsonplaceholder API, native fetch)
+  users/page.tsx                    SSR-sorted users (jsonplaceholder API, axios + fetch adapter)
   api/
-    dev-network/route.ts            SSE streaming endpoint
+    dev-network/route.ts            SSE streaming endpoint (session-scoped)
 components/
   DevNetworkPanel.tsx               Floating panel (all client logic)
   ui/
@@ -277,6 +298,16 @@ v4 has a substantially different API from v1/v2:
 - `onLayoutChanged` fires only after a user-completed drag (not on programmatic `setLayout` calls) — this is used for saving `detailSize`
 - Panel registration happens asynchronously after mount; `setLayout` is deferred with `setTimeout(0)` to ensure the detail panel is registered with the Group before the initial size is applied
 - `useGroupRef` / `usePanelRef` hooks replace the old `ref` prop pattern
+
+### Session isolation: why `x-dev-sid` header instead of just the cookie
+
+Middleware can set cookies in the **response**, not the request. So on the very first visit, the `__dev_sid` cookie does not exist when the incoming request arrives — the middleware generates it and puts it in the response. If we relied solely on `cookies()` in the patched fetch, the first page load's server-side fetches would have no session ID.
+
+Forwarding the session ID as an **`x-dev-sid` request header** (via `NextResponse.next({ request: { headers: ... } })`) solves this: the header exists on the incoming request from the very first visit, regardless of whether the cookie has been seen before. The SSE connection always happens after the first response is received, so by the time it opens, the cookie is already set and middleware includes `x-dev-sid` on that request too.
+
+### Why `headers()` works inside `globalThis.fetch`
+
+`headers()` from `next/headers` reads from Next.js's internal `RequestAsyncStorage` — a Node.js `AsyncLocalStorage` instance that is set for the duration of each request's async execution tree. Since our patched `globalThis.fetch` is just a regular async function called from within a Server Component (which runs inside that tree), the ALS context is present and `headers()` returns the current request's headers. For fetches made outside any request context (startup, background tasks), `headers()` throws and we catch it, leaving `sessionId: null`.
 
 ### Dialog z-index
 
