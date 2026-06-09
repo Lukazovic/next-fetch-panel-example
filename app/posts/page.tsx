@@ -4,11 +4,15 @@ const PER_PAGE = 10;
 const TOTAL = 100;
 const TOTAL_PAGES = TOTAL / PER_PAGE;
 
+// Simulates a secret API key coming from an environment variable.
+// The panel redacts this from the URL automatically — the raw value never reaches the browser.
+const POSTS_API_KEY = process.env.POSTS_API_KEY ?? "super-secret-key-abc123";
+
 type Post = { id: number; title: string; body: string; userId: number };
 
 async function getPosts(page: number): Promise<Post[]> {
   const res = await fetch(
-    `https://jsonplaceholder.typicode.com/posts?_page=${page}&_limit=${PER_PAGE}`
+    `https://jsonplaceholder.typicode.com/posts?_page=${page}&_limit=${PER_PAGE}&api_key=${POSTS_API_KEY}`
   );
   return res.json();
 }

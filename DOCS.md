@@ -136,10 +136,11 @@ A `"use client"` component rendered unconditionally inside `RootLayout`. On moun
 ## File Structure
 
 ```
-instrumentation.ts                  Next.js server startup hook (fetch patch + session tagging)
+instrumentation.ts                  Next.js server startup hook (fetch patch + session tagging + redaction)
 middleware.ts                       Session cookie generation + x-dev-sid header forwarding
 lib/
   dev-log-store.ts                  Singleton pub/sub store + ring buffer (entries carry sessionId)
+  redact.ts                         Configurable redaction of secrets from URLs, headers, and bodies
 app/
   layout.tsx                        Mounts <DevNetworkPanel /> globally
   page.tsx                          Hub page with links to /posts and /users
@@ -257,6 +258,51 @@ Default values:
 - `light` / `dark` — explicit override
 
 The `dark` class is applied directly to the panel container (Sheet, fixed div) and settings dialog because they render in portals outside the app's theme tree.
+
+---
+
+## Redacting Secrets
+
+The panel redacts sensitive values before they are stored or streamed to any browser. Redaction happens in `instrumentation.ts` immediately after a response is received — the raw value is never written to the store.
+
+### Configuration (`lib/redact.ts`)
+
+```ts
+export const redactConfig = {
+  urlParams: ["api_key", "apikey", "secret", "token", "access_token", "password", "key"],
+  headers:   ["authorization", "x-api-key", "x-secret", "x-auth-token"],
+  bodyKeys:  ["password", "secret", "token", "api_key", "apiKey", "accessToken", "access_token"],
+};
+```
+
+Edit these lists to add or remove patterns. Matching is:
+- **URL params** — exact match against the query parameter name
+- **Headers** — case-insensitive match against the header name
+- **Body keys** — exact match against top-level JSON keys (non-JSON bodies are left untouched)
+
+Matched values are replaced with `[REDACTED]` in the panel. The actual HTTP request is never modified — only the copy stored for display.
+
+### Example
+
+`app/posts/page.tsx` passes a fake API key as a URL query param:
+
+```ts
+const POSTS_API_KEY = process.env.POSTS_API_KEY ?? "super-secret-key-abc123";
+
+await fetch(`https://…/posts?_page=1&_limit=10&api_key=${POSTS_API_KEY}`)
+```
+
+Because `api_key` is in `redactConfig.urlParams`, the panel displays:
+
+```
+GET  200  https://…/posts?_page=1&_limit=10&api_key=[REDACTED]
+```
+
+The raw URL (`…&api_key=super-secret-key-abc123`) is used for the real HTTP request but is never persisted or sent to the browser.
+
+### Extending redaction
+
+To redact a value that doesn't fit the three categories above (e.g., a bearer token inside a JSON response body at a nested path), add a custom transform in `redactEntry` in `lib/redact.ts`.
 
 ---
 

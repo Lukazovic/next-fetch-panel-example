@@ -41,6 +41,7 @@ export async function register() {
   }
 
   const { devLogStore } = await import("./lib/dev-log-store");
+  const { redactEntry } = await import("./lib/redact");
 
   const originalFetch = globalThis.fetch;
 
@@ -73,33 +74,33 @@ export async function register() {
 
       // clone to read body without consuming the original stream
       response.clone().text().then(
-        (text) => devLogStore.push({
+        (text) => devLogStore.push(redactEntry({
           id, url, method, ts, duration, error: undefined,
           status: response.status, statusText: response.statusText,
           requestHeaders, responseHeaders,
           requestBody, responseBody: text.slice(0, BODY_LIMIT),
           sessionId,
-        }),
-        () => devLogStore.push({
+        })),
+        () => devLogStore.push(redactEntry({
           id, url, method, ts, duration, error: undefined,
           status: response.status, statusText: response.statusText,
           requestHeaders, responseHeaders,
           requestBody, responseBody: null,
           sessionId,
-        }),
+        })),
       );
 
       return response;
     } catch (err) {
       const duration = Math.round(performance.now() - start);
       const error = err instanceof Error ? err.message : String(err);
-      devLogStore.push({
+      devLogStore.push(redactEntry({
         id, url, method, ts, duration, error,
         status: null, statusText: null,
         requestHeaders, responseHeaders: {},
         requestBody, responseBody: null,
         sessionId,
-      });
+      }));
       throw err;
     }
   };
