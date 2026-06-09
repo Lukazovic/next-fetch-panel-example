@@ -1,4 +1,5 @@
 import Link from "next/link";
+import axios from "axios";
 
 const SORT_OPTIONS = ["name", "email", "id"] as const;
 type SortKey = (typeof SORT_OPTIONS)[number];
@@ -13,11 +14,14 @@ type User = {
   address: { street: string; city: string };
 };
 
+// adapter: "fetch" routes axios through globalThis.fetch, which is patched by instrumentation.ts
+const http = axios.create({ adapter: "fetch" });
+
 async function getUsers(sort: SortKey): Promise<User[]> {
-  const res = await fetch(
+  const { data } = await http.get<User[]>(
     `https://jsonplaceholder.typicode.com/users?_sort=${sort}`
   );
-  return res.json();
+  return data;
 }
 
 export default async function UsersPage({
