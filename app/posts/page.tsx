@@ -33,7 +33,7 @@ export default async function PostsPage({
       </Link>
       <h1 className="text-2xl font-bold mb-1">Posts</h1>
       <p className="text-zinc-500 text-sm mb-6">
-        Página {page} de {TOTAL_PAGES} — cada troca de página dispara um fetch SSR
+        Page {page} of {TOTAL_PAGES} — each page change triggers an SSR fetch
       </p>
 
       <ul className="flex flex-col gap-3 max-w-2xl mb-8">
@@ -52,11 +52,11 @@ export default async function PostsPage({
             href={`/posts?page=${page - 1}`}
             className="px-4 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-sm transition-colors"
           >
-            ← Anterior
+            ← Previous
           </Link>
         ) : (
           <span className="px-4 py-2 rounded bg-zinc-900 text-zinc-600 text-sm cursor-not-allowed">
-            ← Anterior
+            ← Previous
           </span>
         )}
 
@@ -81,11 +81,11 @@ export default async function PostsPage({
             href={`/posts?page=${page + 1}`}
             className="px-4 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-sm transition-colors"
           >
-            Próxima →
+            Next →
           </Link>
         ) : (
           <span className="px-4 py-2 rounded bg-zinc-900 text-zinc-600 text-sm cursor-not-allowed">
-            Próxima →
+            Next →
           </span>
         )}
       </div>

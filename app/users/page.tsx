@@ -43,11 +43,11 @@ export default async function UsersPage({
       </Link>
       <h1 className="text-2xl font-bold mb-1">Users</h1>
       <p className="text-zinc-500 text-sm mb-6">
-        Cada mudança de ordenação dispara um fetch SSR — veja no painel
+        Each sort change triggers an SSR fetch — see it in the panel
       </p>
 
       <div className="flex gap-2 mb-6">
-        <span className="text-xs text-zinc-500 self-center mr-1">Ordenar por:</span>
+        <span className="text-xs text-zinc-500 self-center mr-1">Sort by:</span>
         {SORT_OPTIONS.map((opt) => (
           <Link
             key={opt}

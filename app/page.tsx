@@ -5,7 +5,7 @@ export default function Home() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-8 font-sans flex flex-col items-start">
       <h1 className="text-2xl font-bold mb-1">SSR Network Panel — Demo</h1>
       <p className="text-zinc-400 text-sm mb-8">
-        Navegue para uma página e abra o painel (canto inferior direito) para ver as requests SSR.
+        Navigate to a page and open the panel (bottom right corner) to see the SSR requests.
       </p>
       <nav className="flex flex-col gap-3">
         <Link
