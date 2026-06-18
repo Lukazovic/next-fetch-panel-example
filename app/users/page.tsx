@@ -63,7 +63,7 @@ export default async function UsersPage({
         ))}
       </div>
 
-      <ul className="grid gap-4 sm:grid-cols-2 max-w-3xl">
+      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full">
         {users.map((user) => (
           <li key={user.id} className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
             <p className="text-sm font-semibold text-zinc-100">{user.name}</p>
