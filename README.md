@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# next-fetch-panel — Example App
 
-## Getting Started
+Live example for [`next-fetch-panel`](https://github.com/Lukazovic/next-fetch-panel), a real-time DevTools-style panel that intercepts server-side `fetch()` calls in a Next.js App Router app and streams them to a floating overlay in the browser.
 
-First, run the development server:
+**🔗 Live demo:** https://next-fetch-panel-example.vercel.app/
+
+![next-fetch-panel demo](docs/demo.gif)
+
+## What this shows
+
+Next.js Server Components and Route Handlers run `fetch()` on the server, which is invisible to browser DevTools. `next-fetch-panel` patches `globalThis.fetch`, streams every request over SSE, and renders it in a floating panel — so you can inspect SSR network activity the same way you'd inspect client-side requests.
+
+This repo is a minimal playground covering the main use cases:
+
+- **`/posts`** — paginated list; every page change triggers a fresh SSR `fetch()`, visible live in the panel.
+- **`/users`** — sorting triggers SSR requests made through `axios` configured with the `fetch` adapter, showing that the panel captures requests regardless of the HTTP client on top.
+- **Secret redaction** — the posts page reads an API key from an env var and appends it to the request URL; the panel automatically redacts it, so the raw value never reaches the browser.
+- **Session isolation** — each browser tab/session only sees its own SSR requests (see `proxy.ts`), so multiple people using the demo don't see each other's traffic.
+
+For a deep dive into how the interception, SSE streaming, and panel UI work internally, see [DOCS.md](./DOCS.md).
+
+## Tech stack
+
+- [Next.js](https://nextjs.org) (App Router)
+- [next-fetch-panel](https://github.com/Lukazovic/next-fetch-panel)
+- [Tailwind CSS](https://tailwindcss.com)
+- [axios](https://axios-http.com) (used on `/users` to demo the fetch adapter)
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000), then navigate to `/posts` or `/users` and open the panel from the bottom-right corner to watch SSR requests come in live.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+app/
+├── api/dev-network/       # SSE endpoint + snapshot route used by the panel
+├── posts/                 # paginated SSR fetch + secret redaction demo
+├── users/                 # axios (fetch adapter) SSR demo
+└── layout.tsx             # mounts <DevNetworkPanel />
+instrumentation.ts         # patches globalThis.fetch on server startup
+proxy.ts                   # middleware: assigns/forwards the per-session id
+```
 
-## Learn More
+## Related
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [next-fetch-panel](https://github.com/Lukazovic/next-fetch-panel) — the library this app demonstrates.
