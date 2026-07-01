@@ -1,11 +1,12 @@
-import Link from "next/link";
+import Link from 'next/link';
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-8 font-sans flex flex-col items-start">
-      <h1 className="text-2xl font-bold mb-1">SSR Network Panel — Demo</h1>
+      <h1 className="text-2xl font-bold mb-1">Next Fetch Panel — Demo</h1>
       <p className="text-zinc-400 text-sm mb-8">
-        Navigate to a page and open the panel (bottom right corner) to see the SSR requests.
+        Navigate to a page and open the panel (bottom right corner) to see the
+        SSR requests.
       </p>
       <nav className="flex flex-col gap-3">
         <Link
